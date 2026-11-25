@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nexov Health — Front Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="brand-name">Nexov Health</span>
+      <span class="sep">/</span>
+      <span class="muted">Front desk</span>
+    </div>
+    <div class="top-right">
+      <span class="agent-pill" id="agentPill"><i></i><span>Maya · idle</span></span>
+      <button class="btn-call" id="tryCall">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg>
+        Try call
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="board">
+      <div class="section-head">
+        <div>
+          <h1 id="boardTitle">Schedule</h1>
+          <p class="muted small" id="boardSub"></p>
+        </div>
+        <div class="days" id="dayTabs" role="tablist"></div>
+      </div>
+
+      <div class="grid-wrap">
+        <div class="grid" id="grid"></div>
+      </div>
+
+      <div class="legend small muted">
+        <span><i class="lg open"></i>Open</span>
+        <span><i class="lg taken"></i>Booked</span>
+        <span><i class="lg none"></i>Off</span>
+      </div>
+    </section>
+
+    <aside class="ledger">
+      <div class="section-head">
+        <h2>Appointments</h2>
+        <span class="count mono" id="apptCount">0</span>
+      </div>
+      <ol class="appts" id="appts"></ol>
+      <p class="empty muted small" id="apptEmpty">Nothing booked yet. Calls land here.</p>
+      <button class="link small" id="resetBtn">Reset demo data</button>
+    </aside>
+  </main>
+
+  <!-- phone -->
+  <div class="phone-layer" id="phoneLayer" aria-hidden="true">
+    <div class="phone" id="phone" data-state="idle">
+      <div class="notch"></div>
+      <div class="phone-top">
+        <span class="mono small" id="phoneClock">9:41</span>
+        <span class="mono small dim">5G</span>
+      </div>
+
+      <div class="caller">
+        <div class="avatar"><span>M</span><div class="ring r1"></div><div class="ring r2"></div></div>
+        <div class="caller-name">Maya</div>
+        <div class="caller-sub">Nexov Health reception</div>
+        <div class="status mono" id="callStatus">Calling…</div>
+      </div>
+
+      <canvas class="wave" id="wave" width="560" height="120"></canvas>
+
+      <div class="activity mono" id="activity"></div>
+
+      <div class="transcript" id="transcript"></div>
+
+      <div class="controls">
+        <button class="ctl" id="muteBtn" aria-label="Mute">
+          <svg viewBox="0 0 24 24"><path class="mic" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2z"/><path class="slash" d="M4 3l17 17" /></svg>
+          <span>mute</span>
+        </button>
+        <button class="ctl end" id="endBtn" aria-label="End call">
+          <svg viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.2.3-4.6.8v3.1c0 .4-.2.7-.6.9-1 .5-1.9 1.1-2.7 1.8-.2.2-.4.3-.7.3s-.5-.1-.7-.3L.3 13.2a1 1 0 0 1 0-1.4C3.4 8.9 7.5 7 12 7s8.6 1.9 11.7 4.8c.2.2.3.4.3.7s-.1.5-.3.7l-2.4 2.4c-.2.2-.4.3-.7.3s-.5-.1-.7-.3c-.8-.7-1.7-1.3-2.7-1.8-.3-.2-.6-.5-.6-.9V9.8C15.2 9.3 13.6 9 12 9z"/></svg>
+          <span>end</span>
+        </button>
+        <button class="ctl" id="closeBtn" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          <span>close</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <audio id="botAudio" autoplay playsinline></audio>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+The browser connects to my Python server over WebRTC (Pipecat's SmallWebRTC transport), so each call gets its own Pipecat pipeline. Incoming audio goes through Silero VAD, which decides when the caller has finished a sentence. That chunk goes to ElevenLabs for speech-to-text, and the text goes into the conversation context for Gemini.
+
+Gemini either answers or calls one of three tools I registered on the pipeline: check availability, book, or cancel. The tools read and write a small SQLite database of mock doctors and slots. The only way the agent knows who the caller is: the phone number they say. The prompt makes the agent read it back first, and the book/cancel tools refuse to run unless the confirmation flag is set, so it can't skip that step.
+
+Gemini's reply is streamed to ElevenLabs text-to-speech and played back over WebRTC. The caller can interrupt mid-sentence. Pipecat's RTVI messages carry the live transcript to the dashboard. When a tool books or cancels something, I send an extra event on the same channel. The dashboard uses it to flash the slot, add the appointment row and show a confirmation card on the phone screen.
