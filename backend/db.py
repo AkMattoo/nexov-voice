@@ -54,6 +54,11 @@ def init_db() -> None:
                 doctor_id TEXT, day TEXT, time TEXT, booked INTEGER DEFAULT 0,
                 UNIQUE (doctor_id, day, time)
             );
+            DROP TABLE IF EXISTS calls;
+            CREATE TABLE calls (
+                id TEXT PRIMARY KEY, started_at TEXT, ended_at TEXT, duration_s INTEGER,
+                outcome TEXT, phone TEXT, summary TEXT, urgent TEXT, transcript TEXT, events TEXT
+            );
             CREATE TABLE appointments (
                 id TEXT PRIMARY KEY, slot_id INTEGER, doctor_id TEXT,
                 patient_name TEXT, phone TEXT, status TEXT, created_at TEXT
@@ -260,3 +265,48 @@ def cancel(phone: str, appointment_id: str | None) -> dict:
         "phone": phone,
         "slot_id": r["slot_id"],
     }
+
+
+def reschedule(phone: str, appointment_id: str | None, doctor: str | None, day: str, time: str) -> dict:
+    """Move an existing booking: book the new slot first, then release the old one."""
+    phone = normalize_phone(phone)
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT a.*, d.name AS doctor_name FROM appointments a JOIN doctors d ON d.id=a.doctor_id
+               WHERE a.phone=? AND a.status='booked'""", (phone,)).fetchall()
+    if not rows:
+        return {"ok": False, "error": "No active appointment found for that phone number."}
+    if appointment_id:
+        rows = [r for r in rows if r["id"].lower() == appointment_id.lower()] or rows
+    if len(rows) > 1 and not appointment_id:
+        return {"ok": False, "needs_choice": True, "error": "Several appointments. Ask which one to move.",
+                "appointments": [{"appointment_id": r["id"], "doctor": r["doctor_name"]} for r in rows]}
+    old = rows[0]
+    new = book(phone, doctor or old["doctor_id"], day, time, old["patient_name"])
+    if not new.get("ok"):
+        return new
+    old_c = cancel(phone, old["id"])
+    return {**new, "ok": True, "previous": old_c.get("when"), "previous_slot_id": old_c.get("slot_id"),
+            "previous_appointment_id": old["id"]}
+
+
+# ---------- call log ----------
+
+def save_call(call: dict) -> None:
+    import json
+    with _lock, _conn() as c:
+        c.execute("INSERT OR REPLACE INTO calls VALUES (?,?,?,?,?,?,?,?,?,?)", (
+            call["id"], call["started_at"], call["ended_at"], call["duration_s"], call["outcome"],
+            call.get("phone"), call.get("summary"), call.get("urgent"),
+            json.dumps(call.get("transcript", [])), json.dumps(call.get("events", [])),
+        ))
+
+
+def list_calls() -> list[dict]:
+    import json
+    with _conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM calls ORDER BY started_at DESC")]
+    for r in rows:
+        r["transcript"] = json.loads(r["transcript"] or "[]")
+        r["events"] = json.loads(r["events"] or "[]")
+    return rows

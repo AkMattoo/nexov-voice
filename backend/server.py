@@ -60,6 +60,11 @@ def appointments():
     return db.list_appointments()
 
 
+@app.get("/api/calls")
+def calls():
+    return db.list_calls()
+
+
 @app.post("/api/reset")
 def reset():
     db.init_db()

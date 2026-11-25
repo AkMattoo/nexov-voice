@@ -7,15 +7,17 @@ const $ = (id) => document.getElementById(id);
 const API = import.meta.env.VITE_API_URL || "";
 
 // ---------------------------------------------------------------- data
-const state = { doctors: [], appts: [], day: null, focusDoc: null, flash: {}, fresh: {} };
+const state = { doctors: [], appts: [], calls: [], day: null, focusDoc: null, flash: {}, fresh: {}, freshCall: null };
 
 async function load() {
-  const [d, a] = await Promise.all([
+  const [d, a, c] = await Promise.all([
     fetch(`${API}/api/doctors`).then((r) => r.json()),
     fetch(`${API}/api/appointments`).then((r) => r.json()),
+    fetch(`${API}/api/calls`).then((r) => r.json()),
   ]);
   state.doctors = d;
   state.appts = a;
+  state.calls = c;
   const days = allDays();
   if (!state.day || !days.includes(state.day)) state.day = days[0];
   render();
@@ -33,7 +35,9 @@ const fmt = {
     const [h, m] = t.split(":").map(Number);
     return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")}${h < 12 ? "a" : "p"}`;
   },
-  phone: (p) => (p.length === 10 ? `${p.slice(0, 5)} ${p.slice(5)}` : p),
+  phone: (p) => (p && p.length === 10 ? `${p.slice(0, 5)} ${p.slice(5)}` : p || "—"),
+  dur: (s) => (s == null ? "—" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`),
+  clock: (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
 };
 
 // ---------------------------------------------------------------- render
@@ -41,7 +45,120 @@ function render() {
   renderDays();
   renderGrid();
   renderAppts();
+  renderCalls();
+  renderKpis();
 }
+
+// ---------------------------------------------------------------- KPIs (Krittiya-style call analytics)
+let lastKpi = {};
+function renderKpis() {
+  const today = new Date().toDateString();
+  const calls = state.calls.filter((c) => new Date(c.started_at).toDateString() === today);
+  const booked = state.appts.filter((a) => a.status === "booked").length;
+  const converted = calls.filter((c) => ["booked", "rescheduled"].includes(c.outcome)).length;
+  const avg = calls.length ? Math.round(calls.reduce((n, c) => n + (c.duration_s || 0), 0) / calls.length) : null;
+  const vals = {
+    kCalls: String(calls.length),
+    kBooked: String(booked),
+    kRate: calls.length ? `${Math.round((converted / calls.length) * 100)}%` : "—",
+    kAvg: fmt.dur(avg),
+  };
+  for (const [id, v] of Object.entries(vals)) {
+    const el = $(id);
+    if (lastKpi[id] !== undefined && lastKpi[id] !== v) {
+      el.classList.add("bump");
+      setTimeout(() => el.classList.remove("bump"), 1200);
+    }
+    el.textContent = v;
+  }
+  lastKpi = vals;
+
+  // calls by hour, 8:00 to 20:00
+  const hours = Array.from({ length: 13 }, (_, i) => i + 8);
+  const counts = hours.map((h) => calls.filter((c) => new Date(c.started_at).getHours() === h).length);
+  const max = Math.max(1, ...counts);
+  const now = new Date().getHours();
+  $("spark").innerHTML = hours
+    .map((h, i) => `<i class="${counts[i] ? "on" : ""}${h === now ? " now" : ""}" style="height:${Math.max(8, (counts[i] / max) * 100)}%" title="${h}:00 · ${counts[i]} call${counts[i] === 1 ? "" : "s"}"></i>`)
+    .join("");
+}
+
+// ---------------------------------------------------------------- call log + drawer
+const OUTCOME = { booked: "booked", rescheduled: "rescheduled", cancelled: "cancelled", urgent: "urgent", "no action": "none" };
+function renderCalls() {
+  $("callCount").textContent = state.calls.length;
+  $("callEmpty").style.display = state.calls.length ? "none" : "block";
+  $("calls").innerHTML = state.calls
+    .map((c) => {
+      const emergency = c.urgent?.startsWith("emergency");
+      const pill = emergency ? "emergency" : OUTCOME[c.outcome] || "none";
+      return `<li><button class="call-row${state.freshCall === c.id ? " new" : ""}" data-call="${c.id}">
+        <div class="cr-top"><span class="pill ${pill}">${emergency ? "emergency" : c.outcome}</span>
+          <span>${fmt.clock(c.started_at)}</span><span>${fmt.phone(c.phone)}</span><span class="dur">${fmt.dur(c.duration_s)}</span></div>
+        <div class="cr-sum">${esc(c.summary || "")}</div></button></li>`;
+    })
+    .join("");
+}
+
+let drawerCall = null;
+function openDrawer(id, tab = "summary") {
+  const c = state.calls.find((x) => x.id === id);
+  if (!c) return;
+  drawerCall = c;
+  $("dId").textContent = `${c.id} · ${new Date(c.started_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`;
+  $("dTitle").textContent = c.outcome === "no action" ? "Enquiry" : c.outcome[0].toUpperCase() + c.outcome.slice(1);
+  $("dMeta").innerHTML = `<div><span>Duration</span><b>${fmt.dur(c.duration_s)}</b></div>
+    <div><span>Caller</span><b>${fmt.phone(c.phone)}</b></div>
+    <div><span>Turns</span><b>${c.transcript.length}</b></div>`;
+  drawerTab(tab);
+  $("drawerLayer").hidden = false;
+}
+function drawerTab(tab) {
+  const c = drawerCall;
+  document.querySelectorAll("[data-dtab]").forEach((b) => b.setAttribute("aria-selected", b.dataset.dtab === tab));
+  if (tab === "summary") {
+    const actions = c.events.filter((e) => ["booked", "rescheduled", "cancelled"].includes(e.kind));
+    $("dBody").innerHTML = `<p class="d-sum">${esc(c.summary || "")}</p>
+      ${c.urgent ? `<div class="d-label">Flag</div><div class="d-flag">${esc(c.urgent)}</div>` : ""}
+      <div class="d-label">Actions</div>
+      ${actions.length ? actions.map((e) => `<div class="d-turn"><span>${e.kind}</span><div>${esc(e.doctor || "")} · ${esc(e.when || "")}${e.previous ? ` <span class="muted">(was ${esc(e.previous)})</span>` : ""}</div></div>`).join("") : `<p class="muted small">No changes to the schedule.</p>`}`;
+  } else if (tab === "transcript") {
+    $("dBody").innerHTML = c.transcript.map((t) => `<div class="d-turn ${t.role}"><span>${t.role}</span><div>${esc(t.text)}</div></div>`).join("") || `<p class="muted small">No transcript.</p>`;
+  } else {
+    const label = {
+      availability: (e) => `Checked availability · ${esc(e.query)}${e.date ? ` · ${e.date}` : ""}`,
+      booked: (e) => `Booked ${e.id} · ${esc(e.doctor)} · ${esc(e.when)}`,
+      rescheduled: (e) => `Moved ${e.id} to ${esc(e.when)}`,
+      cancelled: (e) => `Cancelled ${e.id} · ${esc(e.when)}`,
+      urgent: (e) => `Flagged ${e.level} · ${esc(e.symptom)}`,
+      failed: (e) => `${e.tool} refused · ${esc(e.reason || "")}`,
+    };
+    $("dBody").innerHTML = c.events.length
+      ? `<ol class="tl">${c.events.map((e) => `<li class="${e.kind}"><span class="t">${fmt.dur(Math.round(e.t))}</span>${(label[e.kind] || (() => e.kind))(e)}</li>`).join("")}</ol>`
+      : `<p class="muted small">No tool calls on this call.</p>`;
+  }
+}
+$("calls").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-call]");
+  if (b) openDrawer(b.dataset.call);
+});
+document.querySelectorAll("[data-dtab]").forEach((b) => b.addEventListener("click", () => drawerTab(b.dataset.dtab)));
+document.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => ($("drawerLayer").hidden = true)));
+
+function showTab(name) {
+  document.querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
+  $("pane-appts").hidden = name !== "appts";
+  $("pane-calls").hidden = name !== "calls";
+}
+document.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+function showAlert(level, symptom) {
+  $("alert").hidden = false;
+  $("alert").className = `alert ${level === "emergency" ? "" : "urgent"}`;
+  $("alertLevel").textContent = level === "emergency" ? "Emergency" : "Urgent";
+  $("alertText").textContent = `Caller reports ${symptom}`;
+}
+$("alertX").addEventListener("click", () => ($("alert").hidden = true));
 
 function renderDays() {
   $("dayTabs").innerHTML = allDays()
@@ -96,7 +213,7 @@ function renderAppts() {
   $("appts").innerHTML = list
     .map((a) => {
       const f = state.fresh[a.id];
-      return `<li class="appt ${a.status}${f === "book" ? " new" : ""}${f === "cancel" ? " just-cancelled" : ""}">
+      return `<li class="appt ${a.status}${f === "book" ? " new" : ""}${f === "move" ? " moved" : ""}${f === "cancel" ? " just-cancelled" : ""}">
         <div class="date"><b>${fmt.dom(a.day)}</b><span>${fmt.mon(a.day)}</span></div>
         <div class="who"><div>${a.patient_name}</div><div>${a.doctor_name} · ${a.speciality}</div></div>
         <div class="meta"><b>${fmt.time(a.time)}</b>${
@@ -131,6 +248,7 @@ $("resetBtn").addEventListener("click", async () => {
   await fetch(`${API}/api/reset`, { method: "POST" });
   state.flash = {};
   state.fresh = {};
+  $("alert").hidden = true;
   load();
 });
 
@@ -147,6 +265,7 @@ const TOOL_LABEL = {
   check_doctor_availability: (a) => `checking ${a.doctor_name || a.speciality || "the"} calendar`,
   book_appointment: () => "booking the slot",
   cancel_appointment: () => "finding the appointment",
+  reschedule_appointment: () => "moving the appointment",
 };
 
 async function onServerMessage(msg) {
@@ -165,11 +284,16 @@ async function onServerMessage(msg) {
     }
     render();
   }
-  if (msg.type === "booked" || msg.type === "cancelled") {
+  if (msg.type === "urgent") {
+    showAlert(msg.level, msg.symptom);
+    urgentCard(msg.level, msg.symptom);
+  }
+  if (["booked", "cancelled", "rescheduled"].includes(msg.type)) {
     activity(null);
     const ap = msg.appointment;
-    const kind = msg.type === "booked" ? "book" : "cancel";
+    const kind = { booked: "book", cancelled: "cancel", rescheduled: "move" }[msg.type];
     mark(state.flash, ap.slot_id, kind);
+    if (ap.previous_slot_id) mark(state.flash, ap.previous_slot_id, "cancel");
     mark(state.fresh, ap.appointment_id, kind, 4000);
     await load();
     const slot = state.doctors.flatMap((d) => d.slots).find((s) => s.id === ap.slot_id);
@@ -291,9 +415,13 @@ function confirmCard(kind, ap) {
   botBubble = null;
   botSegs = new Map();
   const el = document.createElement("div");
-  el.className = `card${kind === "cancel" ? " cancel" : ""}`;
+  el.className = `card${kind === "cancel" ? " cancel" : kind === "move" ? " move" : ""}`;
   el.innerHTML =
-    kind === "book"
+    kind === "move"
+      ? `<div class="k"><span>Rescheduled</span><span>${ap.appointment_id}</span></div>
+         <div class="t">${ap.doctor}</div><div class="s">was ${ap.previous || "—"}</div>
+         <div class="row"><span>${ap.when}</span><span>${fmt.phone(ap.phone)}</span></div>`
+      : kind === "book"
       ? `<div class="k"><span>Booked</span><span>${ap.appointment_id}</span></div>
          <div class="t">${ap.doctor}</div><div class="s">${ap.speciality} · ${ap.room}</div>
          <div class="row"><span>${ap.when}</span><span>${fmt.phone(ap.phone)}</span></div>`
@@ -302,6 +430,34 @@ function confirmCard(kind, ap) {
          <div class="row"><span>${ap.when}</span><span>${fmt.phone(ap.phone)}</span></div>`;
   tx.append(el);
   scroll();
+}
+
+function urgentCard(level, symptom) {
+  botBubble = null;
+  botSegs = new Map();
+  const el = document.createElement("div");
+  el.className = "card alert-card";
+  el.innerHTML = `<div class="k"><span>${level === "emergency" ? "Emergency" : "Urgent"} flag</span><span>front desk notified</span></div>
+    <div class="t">${esc(symptom || "")}</div>
+    <div class="s">${level === "emergency" ? "Advised to call 112 / go to ER" : "Prioritising earliest slot"}</div>`;
+  tx.append(el);
+  scroll();
+}
+
+// pull the call log a few times after hang-up; the AI summary takes a moment
+async function refreshCallsAfterHangup() {
+  const before = state.calls.length;
+  for (let i = 0; i < 8; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    await load();
+    if (state.calls.length > before) {
+      state.freshCall = state.calls[0].id;
+      showTab("calls");
+      render();
+      setTimeout(() => ((state.freshCall = null), renderCalls()), 4000);
+      return;
+    }
+  }
 }
 
 // call lifecycle ------------------------------------------------------
@@ -369,6 +525,7 @@ async function endCall(userInitiated = true) {
   }
   client = null;
   ending = false;
+  refreshCallsAfterHangup();
 }
 
 $("tryCall").addEventListener("click", startCall);
@@ -382,7 +539,9 @@ $("muteBtn").addEventListener("click", () => {
   $("muteBtn").querySelector("span").textContent = muted ? "unmute" : "mute";
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && phone.dataset.state === "ended") closePhone();
+  if (e.key !== "Escape") return;
+  if (!$("drawerLayer").hidden) $("drawerLayer").hidden = true;
+  else if (phone.dataset.state === "ended") closePhone();
 });
 
 // keep the board fresh if something changes outside a call
