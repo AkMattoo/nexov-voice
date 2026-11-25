@@ -54,7 +54,7 @@ export class Wave {
     g.clearRect(0, 0, w, h);
     this.hist.forEach((p, i) => {
       const bh = Math.max(4, p.v * h * 0.9);
-      g.fillStyle = p.who === "bot" ? "#f0a73a" : p.who === "user" ? "#ecebe7" : "#33302b";
+      g.fillStyle = p.who === "bot" ? "#7ea6ff" : p.who === "user" ? "#eaf0fa" : "#243249";
       g.globalAlpha = 0.35 + 0.65 * (i / n);
       const x = i * step + (step - bw) / 2;
       const y = (h - bh) / 2;
