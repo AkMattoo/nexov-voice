@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
+  <div class="mesh" aria-hidden="true"><i></i><i></i><i></i></div>
   <header class="top">
     <div class="brand">
       <span class="mark" aria-hidden="true"></span>
@@ -111,13 +112,12 @@
       </div>
 
       <div class="caller">
-        <div class="avatar"><span>M</span><div class="ring r1"></div><div class="ring r2"></div></div>
+        <canvas class="orb" id="wave" width="520" height="520"></canvas>
         <div class="caller-name">Maya</div>
         <div class="caller-sub">Nexov Health reception</div>
         <div class="status mono" id="callStatus">Calling…</div>
       </div>
 
-      <canvas class="wave" id="wave" width="560" height="120"></canvas>
       <div class="activity mono" id="activity"></div>
       <div class="transcript" id="transcript"></div>
 

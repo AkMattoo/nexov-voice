@@ -198,12 +198,51 @@ function renderGrid() {
         })
         .join("");
       return `<div class="g-row${state.focusDoc === doc.id ? " focus" : ""}" style="--cols:${times.length}">
-          <div class="doc"><div class="doc-name">${doc.name}</div>
-          <div class="doc-spec">${doc.speciality}<span class="free">· ${free}</span></div></div>${cells}</div>`;
+          <div class="doc">${avatar(doc)}<div class="doc-txt"><div class="doc-name">${doc.name}</div>
+          <div class="doc-spec">${doc.speciality}<span class="free">· ${free}</span></div></div></div>${cells}</div>`;
     })
     .join("");
 
   $("grid").innerHTML = head + rows;
+}
+
+// Illustrated, gently animated doctor portraits (pure SVG, no image assets).
+const LOOKS = {
+  d1: { bg: ["#cfe0ff", "#8fb2ff"], skin: "#e9b48f", hair: "#2b1d16", long: true },
+  d2: { bg: ["#d7f0ff", "#7fc4ef"], skin: "#c68b63", hair: "#1c1c22", long: false, beard: true },
+  d3: { bg: ["#ffe3ec", "#f3a5bf"], skin: "#f1c6a5", hair: "#5a3424", long: true },
+  d4: { bg: ["#e2f6e9", "#93d3ac"], skin: "#a86f4c", hair: "#121212", long: false },
+  d5: { bg: ["#fff1d6", "#f7c67a"], skin: "#d9a07a", hair: "#2a1a12", long: true, bun: true },
+};
+function avatar(doc) {
+  const L = LOOKS[doc.id] || LOOKS.d1;
+  const id = doc.id;
+  const hair = L.long
+    ? `<path d="M15 30c0-12 7-19 17-19s17 7 17 19v14c-3 2-6 2-8 0V30H23v14c-2 2-5 2-8 0z" fill="${L.hair}"/>`
+    : `<path d="M17 28c0-10 6-15 15-15s15 5 15 15c-3-4-8-6-15-6s-12 2-15 6z" fill="${L.hair}"/>`;
+  return `<span class="av" style="--d:${(parseInt(id.slice(1)) * 0.7).toFixed(1)}s">
+  <svg viewBox="0 0 64 64" aria-hidden="true">
+    <defs><linearGradient id="g${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${L.bg[0]}"/><stop offset="1" stop-color="${L.bg[1]}"/></linearGradient>
+    <clipPath id="c${id}"><circle cx="32" cy="32" r="32"/></clipPath></defs>
+    <g clip-path="url(#c${id})">
+      <rect width="64" height="64" fill="url(#g${id})"/>
+      <g class="av-body">
+        <path d="M8 66c2-12 11-18 24-18s22 6 24 18z" fill="#fff"/>
+        <path d="M27 48l5 8 5-8" fill="#dfe8f7"/>
+        <path d="M22 51c0 8 4 11 6 11" stroke="#2459e0" stroke-width="1.6" fill="none"/><circle cx="28" cy="62" r="2" fill="#2459e0"/>
+        <rect x="28" y="40" width="8" height="9" rx="3" fill="${L.skin}"/>
+        ${L.bun ? `<circle cx="32" cy="12" r="6" fill="${L.hair}"/>` : ""}
+        ${L.long ? hair : ""}
+        <ellipse cx="32" cy="31" rx="12" ry="13.5" fill="${L.skin}"/>
+        ${L.long ? "" : hair}
+        ${L.long ? `<path d="M20 28c2-8 7-11 12-11s10 3 12 11c-6-3-12-5-24 0z" fill="${L.hair}"/>` : ""}
+        ${L.beard ? `<path d="M21 33c1 9 6 12 11 12s10-3 11-12c-2 4-6 6-11 6s-9-2-11-6z" fill="${L.hair}" opacity=".85"/>` : ""}
+        <g class="av-eyes"><ellipse cx="27.5" cy="31" rx="1.4" ry="1.7" fill="#1b1b1f"/><ellipse cx="36.5" cy="31" rx="1.4" ry="1.7" fill="#1b1b1f"/></g>
+        <path d="M28.5 37c2 1.6 5 1.6 7 0" stroke="#7a3b2a" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        <circle cx="25" cy="35" r="1.8" fill="#f28b8b" opacity=".35"/><circle cx="39" cy="35" r="1.8" fill="#f28b8b" opacity=".35"/>
+      </g>
+    </g>
+  </svg></span>`;
 }
 
 function renderAppts() {
@@ -460,6 +499,16 @@ async function refreshCallsAfterHangup() {
   }
 }
 
+function playBot(track) {
+  const el = $("botAudio");
+  if (el.srcObject?.getAudioTracks?.()[0]?.id === track.id) return;
+  el.srcObject = new MediaStream([track]);
+  el.muted = false;
+  el.volume = 1;
+  el.play().catch((e) => console.warn("audio play blocked", e));
+  wave.attachBot(track);
+}
+
 // call lifecycle ------------------------------------------------------
 async function startCall() {
   tx.innerHTML = "";
@@ -479,6 +528,9 @@ async function startCall() {
     enableCam: false,
     callbacks: {
       onBotReady: () => {
+        // fallback in case onTrackStarted fired before we were listening
+        const t = client?.tracks?.()?.bot?.audio;
+        if (t) playBot(t);
         sounds.stopRing();
         setCall("connected", "00:00");
         startTimer();
@@ -488,11 +540,9 @@ async function startCall() {
       onBotOutput,
       onServerMessage,
       onTrackStarted: (track, p) => {
-        if (track.kind === "audio" && p && !p.local) {
-          $("botAudio").srcObject = new MediaStream([track]);
-          wave.attachBot(track);
-        }
-        if (track.kind === "audio" && p?.local) wave.attachUser(track);
+        if (track.kind !== "audio") return;
+        if (p?.local) return wave.attachUser(track);
+        playBot(track); // anything not local is Maya
       },
       onError: (e) => console.error("pipecat error", e),
     },
@@ -549,3 +599,27 @@ setInterval(() => !client && load(), 15000);
 load().catch(() => {
   $("boardSub").textContent = "Backend not reachable on :7860";
 });
+
+// interactive background: spotlight + parallax blobs + panel sheen follow the cursor
+(() => {
+  const mesh = document.querySelector(".mesh");
+  if (!mesh) return;
+  const blobs = mesh.querySelectorAll("i");
+  let raf = 0, x = 0, y = 0;
+  addEventListener("pointermove", (e) => {
+    x = e.clientX; y = e.clientY;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      mesh.style.setProperty("--mx", `${x}px`);
+      mesh.style.setProperty("--my", `${y}px`);
+      const dx = x / innerWidth - 0.5, dy = y / innerHeight - 0.5;
+      blobs.forEach((b, i) => (b.style.transform = `translate(${dx * (40 + i * 30)}px, ${dy * (40 + i * 30)}px)`));
+      document.querySelectorAll(".board, .side").forEach((p) => {
+        const r = p.getBoundingClientRect();
+        p.style.setProperty("--lx", `${x - r.left}px`);
+        p.style.setProperty("--ly", `${y - r.top}px`);
+      });
+    });
+  });
+})();

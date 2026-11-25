@@ -21,7 +21,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
-from pipecat.services.elevenlabs.stt import ElevenLabsSTTService
+from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService, ElevenLabsSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.google.llm import GoogleLLMService
 from pipecat.services.llm_service import FunctionCallParams
@@ -223,13 +223,27 @@ def make_handlers(call: Call):
                   if level == "emergency" else "Offer the earliest available slot with the right doctor.")
         await params.result_callback({"ok": True, "flagged": level, "next": advice})
 
-    return {
+    def safe(fn):
+        # If anything inside a tool throws, still answer the LLM so the call never hangs.
+        async def wrapper(params: FunctionCallParams):
+            try:
+                await fn(params)
+            except Exception as e:
+                logger.exception(f"Tool {fn.__name__} failed")
+                call.log("failed", tool=fn.__name__, reason=str(e))
+                try:
+                    await params.result_callback({"ok": False, "error": "System error. Apologise and try once more."})
+                except Exception:
+                    pass
+        return wrapper
+
+    return {k: safe(v) for k, v in {
         "check_doctor_availability": check_doctor_availability,
         "book_appointment": book_appointment,
         "reschedule_appointment": reschedule_appointment,
         "cancel_appointment": cancel_appointment,
         "flag_urgent_case": flag_urgent_case,
-    }
+    }.items()}
 
 
 def transcript_of(context: LLMContext) -> list[dict]:
@@ -256,7 +270,17 @@ async def run_bot(connection: SmallWebRTCConnection):
     )
 
     async with aiohttp.ClientSession() as session:
-        stt = ElevenLabsSTTService(api_key=os.environ["ELEVENLABS_API_KEY"], aiohttp_session=session)
+        if os.getenv("STT_MODE", "realtime") == "segmented":
+            # Fallback: upload each finished utterance (simpler, but adds ~1s per turn).
+            stt = ElevenLabsSTTService(api_key=os.environ["ELEVENLABS_API_KEY"], aiohttp_session=session)
+        else:
+            # Streaming STT: transcribes while the caller talks; our Silero VAD decides when to commit.
+            stt = ElevenLabsRealtimeSTTService(
+                api_key=os.environ["ELEVENLABS_API_KEY"],
+                settings=ElevenLabsRealtimeSTTService.Settings(
+                    keyterms=[d["name"].replace("Dr. ", "") for d in db.list_doctors()] + ["Nexov"],
+                ),
+            )
         tts = ElevenLabsTTSService(
             api_key=os.environ["ELEVENLABS_API_KEY"],
             settings=ElevenLabsTTSService.Settings(
@@ -276,6 +300,8 @@ async def run_bot(connection: SmallWebRTCConnection):
         @llm.event_handler("on_function_calls_started")
         async def on_tools_started(_service, function_calls):
             # Fill the silence while the database is queried.
+            if os.getenv("FILLER", "1") == "0":
+                return
             for fc in function_calls:
                 lines = FILLERS.get(fc.function_name)
                 if lines:
@@ -289,7 +315,7 @@ async def run_bot(connection: SmallWebRTCConnection):
         aggregators = LLMContextAggregatorPair(context)
 
         # Silero VAD marks where speech starts/stops; ElevenLabs STT transcribes each segment.
-        vad = VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.5)))
+        vad = VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=float(os.getenv("VAD_STOP_SECS", "0.35")))))
 
         pipeline = Pipeline(
             [

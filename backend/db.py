@@ -92,7 +92,7 @@ def pretty_day(iso: str) -> str:
 
 
 def pretty_time(hhmm: str) -> str:
-    return datetime.strptime(hhmm, "%H:%M").strftime("%-I:%M %p")
+    return datetime.strptime(hhmm, "%H:%M").strftime("%I:%M %p").lstrip("0")  # portable (Windows has no %-I)
 
 
 def _norm_time(t: str) -> str | None:
