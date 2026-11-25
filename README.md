@@ -71,6 +71,7 @@ mic ──WebRTC──▶ Silero VAD ─▶ ElevenLabs STT ─▶ user context �
 - Appointments ledger: newest first, new rows slide in highlighted, cancelled rows strike through. Slots flash sage for a booking, rose for a cancellation, azure for a reschedule.
 - Phone call screen: ringing → connected → ended states, call timer, mute, end call, live transcript with the not-yet-spoken part of each bot sentence shown faint, a live waveform (agent voice in green, caller in white), a "checking Dr. Rao's calendar" activity line during tool calls, a confirmation card on booking/cancellation, and synthesized ring, end-call and confirmation sounds.
 - On wide screens the phone docks to the right and the dashboard reflows so both stay visible. On mobile the phone goes full screen.
+- Note: the screen recorder didn't capture my microphone, so only Maya's voice is audible. My side of the conversation is visible in the live transcript on the phone screen.
 
 ## Files
 
